@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Iterable, Sequence
 
@@ -13,6 +14,7 @@ class FedAvgResult:
     global_prototypes: torch.Tensor
     eval_rounds: torch.Tensor
     accuracies: torch.Tensor
+    global_epoch_durations: torch.Tensor
 
 
 class FedAvg:
@@ -152,8 +154,12 @@ class FedAvg:
         chunk_schedule: list[torch.Tensor] = []
         eval_rounds: list[int] = []
         accuracies: list[float] = []
+        global_epoch_durations: list[float] = []
 
         for global_epoch in range(global_epochs):
+            self._synchronize_device()
+            epoch_start = time.perf_counter()
+
             if chunks == 1:
                 current_positions = full_positions
             else:
@@ -196,6 +202,9 @@ class FedAvg:
             # Write only the active coordinates back into the global C x D model.
             global_prototypes[:, current_positions.to(self.device)] = global_slice
 
+            self._synchronize_device()
+            global_epoch_durations.append(time.perf_counter() - epoch_start)
+
             eval_positions = full_positions
 
             round_number = global_epoch + 1
@@ -216,6 +225,7 @@ class FedAvg:
             global_prototypes=global_prototypes.detach().cpu(),
             eval_rounds=torch.as_tensor(eval_rounds, dtype=torch.long),
             accuracies=torch.as_tensor(accuracies, dtype=torch.float32),
+            global_epoch_durations=torch.as_tensor(global_epoch_durations, dtype=torch.float64),
         )
 
     @torch.no_grad()
@@ -247,3 +257,7 @@ class FedAvg:
             backend=self.backend,
             dtype=self.dtype,
         )
+
+    def _synchronize_device(self) -> None:
+        if self.device.type == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize(self.device)

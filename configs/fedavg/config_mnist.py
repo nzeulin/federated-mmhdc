@@ -18,10 +18,10 @@ def get_config():
     config.transform.batch_size = None
 
     config.model = ConfigDict()
-    config.model.learning_rate = 1e-2
-    config.model.C = float("inf")
-    config.model.margin_width = 0.25
-    config.model.no_margin = True
+    config.model.learning_rate = 1e-4
+    config.model.C = 500.0
+    config.model.margin_width = 1
+    config.model.no_margin = False
     config.model.backend = "cpp"
 
     config.fl = ConfigDict()
@@ -35,8 +35,8 @@ def get_config():
 
     config.training = ConfigDict()
     config.training.global_epochs = 100
-    config.training.local_epochs = 5
-    config.training.num_experiments = 10
+    config.training.local_epochs = 10
+    config.training.num_experiments = 1
     config.training.eval_global_epochs = 1
 
     config.reproducibility = ConfigDict()
@@ -45,7 +45,7 @@ def get_config():
     config.output = ConfigDict()
     config.output.results_dir = "results/fedavg"
     config.output.results_filename = "fedavg_mnist_results.pt"
-    config.output.plot_filename = "fedavg_mnist_accuracy.png"
+    config.output.plot_filename = "fedavg_mnist_accuracy.pdf"
 
     config.device = "cuda"
 

@@ -98,13 +98,60 @@ def plot_accuracy(eval_rounds: torch.Tensor, accuracies: torch.Tensor, output_pa
     plt.figure(figsize=(8, 5))
     plt.plot(rounds.numpy(), mean.numpy(), label="Mean accuracy")
     plt.fill_between(rounds.numpy(), lower.numpy(), upper.numpy(), alpha=0.25, label="5-95 percentile")
-    plt.xlabel("Global update round")
+    plt.xlabel("Evaluation epoch")
     plt.ylabel("Test accuracy")
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)
     plt.close()
+
+
+def compute_eval_wall_times(eval_rounds: torch.Tensor, global_epoch_durations: torch.Tensor) -> torch.Tensor:
+    rounds = eval_rounds.detach().cpu().to(dtype=torch.long)
+    durations = global_epoch_durations.detach().cpu().to(dtype=torch.float64)
+    cumulative = durations.cumsum(dim=1)
+    return cumulative.index_select(1, rounds - 1)
+
+
+def plot_accuracy_by_time(eval_wall_times: torch.Tensor, accuracies: torch.Tensor, output_path: str | Path) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    times = eval_wall_times.detach().cpu().to(dtype=torch.float64)
+    curves = accuracies.detach().cpu()
+    mean_time = times.mean(dim=0)
+    mean_accuracy = curves.mean(dim=0)
+
+    plt.figure(figsize=(8, 5))
+    for experiment_index in range(curves.shape[0]):
+        label = "Experiment accuracy" if experiment_index == 0 else None
+        plt.plot(
+            times[experiment_index].numpy(),
+            curves[experiment_index].numpy(),
+            color="tab:blue",
+            alpha=0.2,
+            linewidth=1.0,
+            label=label,
+        )
+    plt.plot(mean_time.numpy(), mean_accuracy.numpy(), color="tab:orange", linewidth=2.0, label="Mean accuracy")
+    plt.xlabel("Training wall-clock time (s)")
+    plt.ylabel("Test accuracy")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150)
+    plt.close()
+
+
+def _wall_time_plot_path(plot_path: str | Path) -> Path:
+    path = Path(plot_path)
+    return path.with_name(f"{path.stem}_by_time{path.suffix}")
 
 
 def _config_to_dict(config: Any) -> dict[str, Any]:
@@ -127,6 +174,7 @@ def run(config) -> dict[str, Any]:
     device = config.device
 
     all_accuracies = []
+    all_global_epoch_durations = []
     eval_rounds = None
     final_prototypes = []
 
@@ -184,27 +232,35 @@ def run(config) -> dict[str, Any]:
             raise RuntimeError("Evaluation rounds differ between experiments.")
 
         all_accuracies.append(result.accuracies)
+        all_global_epoch_durations.append(result.global_epoch_durations)
         final_prototypes.append(result.global_prototypes)
 
     accuracy_tensor = torch.stack(all_accuracies)
+    global_epoch_duration_tensor = torch.stack(all_global_epoch_durations)
     assert eval_rounds is not None
+    eval_wall_times = compute_eval_wall_times(eval_rounds, global_epoch_duration_tensor)
 
     output_dir = Path(config.output.results_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     results_path = output_dir / config.output.results_filename
     plot_path = output_dir / config.output.plot_filename
+    time_plot_path = _wall_time_plot_path(plot_path)
 
     results = {
         "config": _config_to_dict(config),
         "eval_rounds": eval_rounds,
         "accuracies": accuracy_tensor,
+        "global_epoch_durations": global_epoch_duration_tensor,
+        "eval_wall_times": eval_wall_times,
         "final_prototypes": final_prototypes,
         "label_classes": list(label_encoder.classes_),
     }
     torch.save(results, results_path)
     plot_accuracy(eval_rounds, accuracy_tensor, plot_path)
+    plot_accuracy_by_time(eval_wall_times, accuracy_tensor, time_plot_path)
     print(f"Saved results to {results_path}")
-    print(f"Saved accuracy plot to {plot_path}")
+    print(f"Saved accuracy plot by evaluation epoch to {plot_path}")
+    print(f"Saved accuracy plot by wall-clock time to {time_plot_path}")
     return results
 
 

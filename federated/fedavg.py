@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Iterable, Sequence
 
 import torch
+from tqdm import tqdm
 
 from . import split_iid, split_noniid
 
@@ -97,9 +98,8 @@ class FedAvg:
         shuffle: bool = False,
         seed: int = 0,
         eval_global_epochs: int = 1,
-        print_progress: bool = False,
-        experiment_index: int | None = None,
-        num_experiments: int | None = None,
+        show_progress: bool = False,
+        method_name: str = "fedavg",
     ) -> FedAvgResult:
         if chunks < 1:
             raise ValueError("chunks must be at least 1.")
@@ -156,6 +156,12 @@ class FedAvg:
         accuracies: list[float] = []
         global_epoch_durations: list[float] = []
 
+        global_epoch_bar = tqdm(
+            total=global_epochs,
+            desc=f"Method: {method_name}",
+            disable=not show_progress,
+            leave=False,
+        )
         for global_epoch in range(global_epochs):
             self._synchronize_device()
             epoch_start = time.perf_counter()
@@ -212,14 +218,14 @@ class FedAvg:
                 accuracy = self.evaluate(X_test, y_test, global_prototypes, eval_positions)
                 eval_rounds.append(round_number)
                 accuracies.append(accuracy)
-                if print_progress:
-                    prefix = ""
-                    if experiment_index is not None and num_experiments is not None:
-                        prefix = f"Exp {experiment_index + 1}/{num_experiments} "
-                    print(
-                        f"{prefix}Round {round_number}/{global_epochs} "
-                        f"Global Accuracy: {accuracy:.4f}"
-                    )
+                if show_progress:
+                    global_epoch_bar.set_postfix_str(f"acc={accuracy:.4f}")
+
+            description = f"Method: {method_name}"
+            global_epoch_bar.update(1)
+            global_epoch_bar.set_description(description)
+
+        global_epoch_bar.close()
 
         return FedAvgResult(
             global_prototypes=global_prototypes.detach().cpu(),

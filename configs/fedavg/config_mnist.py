@@ -25,11 +25,11 @@ def get_config():
     config.model.backend = "cpp"
 
     config.fl = ConfigDict()
-    config.fl.method = "fedavg"
+    config.fl.method = ["fedavg"]
     config.fl.num_clients = 20
     config.fl.noniid = False
     config.fl.classes_per_client = 10
-    config.fl.chunks = 1
+    config.fl.chunks = [1, 2, 5, 10]
     config.fl.batch_size = 1_000
     config.fl.shuffle = False
 

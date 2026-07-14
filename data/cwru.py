@@ -143,6 +143,7 @@ def load_cwru_dataset(
         source_path = raw_root / recording.relative_path
         signal, rpm = _load_cwru_signal(
             source_path,
+            recording.recording_id,
             resolved_config["sensor_channel"],
             recording.rpm,
         )
@@ -516,6 +517,7 @@ def _download_cwru_source_files(
 
 def _load_cwru_signal(
     source_path: Path,
+    recording_id: str,
     sensor_channel: str,
     manifest_rpm: float | None,
 ) -> tuple[np.ndarray, float | None]:
@@ -526,13 +528,19 @@ def _load_cwru_signal(
 
     suffix = f"_{sensor_channel}_time"
     signal_keys = [key for key in contents if key.endswith(suffix)]
-    if len(signal_keys) != 1:
+    expected_signal_key = f"X{recording_id}{suffix}"
+    if expected_signal_key in contents:
+        signal_key = expected_signal_key
+    elif len(signal_keys) == 1:
+        signal_key = signal_keys[0]
+    else:
         raise ValueError(
-            f"CWRU file '{source_path}' must contain exactly one variable ending "
-            f"in '{suffix}'; found {signal_keys}."
+            f"CWRU file '{source_path}' does not contain the expected variable "
+            f"'{expected_signal_key}' and has ambiguous '{suffix}' variables: "
+            f"{signal_keys}."
         )
 
-    signal = np.asarray(contents[signal_keys[0]], dtype=np.float64).reshape(-1)
+    signal = np.asarray(contents[signal_key], dtype=np.float64).reshape(-1)
     if signal.size == 0:
         raise ValueError(f"CWRU signal is empty in '{source_path}'.")
     if not np.isfinite(signal).all():
@@ -729,4 +737,3 @@ def _format_cwru_output(
     if return_class_mapping:
         dataset_info["class_mapping"] = dict(payload["class_mapping"])
     return (*tensors, dataset_info)
-

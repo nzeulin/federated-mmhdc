@@ -6,41 +6,15 @@ import tempfile
 import urllib.request
 import zipfile
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import torch
-from mmhdc.utils import HDTransform
-from torchvision.datasets import MNIST
 
 
 HAR_DATASET_URL = (
     "https://archive.ics.uci.edu/static/public/240/"
     "human+activity+recognition+using+smartphones.zip"
 )
-
-
-def load_dataset(config: Any) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    dataset_name = config.dataset.name.lower()
-    if dataset_name in {"har", "uci-har"}:
-        return load_har_dataset(
-            config.dataset.data_root,
-            download=bool(config.dataset.download),
-        )
-    if dataset_name != "mnist":
-        supported = ["har", "mnist", "uci-har"]
-        raise ValueError(f"Unsupported dataset '{config.dataset.name}'. Expected one of {supported}.")
-
-    root = Path(config.dataset.data_root)
-    train_set = MNIST(root=str(root), train=True, download=bool(config.dataset.download))
-    test_set = MNIST(root=str(root), train=False, download=bool(config.dataset.download))
-
-    return (
-        train_set.data.to(dtype=torch.float32),
-        train_set.targets.to(dtype=torch.long),
-        test_set.data.to(dtype=torch.float32),
-        test_set.targets.to(dtype=torch.long),
-    )
 
 
 def _har_dataset_paths(data_root: str | Path) -> dict[str, Path]:
@@ -125,26 +99,3 @@ def load_har_dataset(
 
     return X_train, y_train, X_test, y_test
 
-
-def transform_features(
-    X_train: torch.Tensor,
-    X_test: torch.Tensor,
-    *,
-    model_dim: int,
-    transform_seed: int,
-    normalize: bool,
-    batch_size: int | None,
-    device: str,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    X_train_flat = X_train.reshape(X_train.shape[0], -1)
-    X_test_flat = X_test.reshape(X_test.shape[0], -1)
-    transform = HDTransform(
-        in_channels=X_train_flat.shape[1],
-        out_channels=model_dim,
-        seed=transform_seed,
-        batch_size=batch_size,
-        normalize=normalize,
-        device=device,
-        dtype=torch.float32,
-    )
-    return transform(X_train_flat), transform(X_test_flat)

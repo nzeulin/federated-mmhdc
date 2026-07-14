@@ -154,7 +154,11 @@ def run(config: Any) -> dict[str, Any]:
     base_seed = int(config.reproducibility.base_seed)
     utils.seed_everything(base_seed)
 
-    X_train, y_train_raw, X_test, y_test_raw = data.load_dataset(config)
+    dataset_output = data.load_dataset(config)
+    if len(dataset_output) not in {4, 5}:
+        raise RuntimeError("Dataset loader must return four tensors and optional dataset information.")
+    X_train, y_train_raw, X_test, y_test_raw = dataset_output[:4]
+    dataset_info = dataset_output[4] if len(dataset_output) == 5 else None
     y_train, y_test, label_encoder = encode_labels(y_train_raw, y_test_raw)
     assert y_test is not None
 
@@ -236,6 +240,8 @@ def run(config: Any) -> dict[str, Any]:
         "runs": runs,
         "label_classes": list(label_encoder.classes_),
     }
+    if dataset_info is not None:
+        results["dataset_info"] = dataset_info
     torch.save(results, results_path)
     utils.plot_accuracy(eval_rounds, runs, plot_path)
     utils.plot_accuracy_by_time(eval_rounds, runs, time_plot_path)

@@ -10,7 +10,7 @@ def get_config():
     config.dataset.num_classes = 6
     config.dataset.model_dim = 5_000
     config.dataset.download = True
-    config.dataset.data_root = "data/har"
+    config.dataset.data_root = "cache/har"
 
     config.transform = ConfigDict()
     config.transform.seed = 0

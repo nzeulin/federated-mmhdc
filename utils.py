@@ -30,12 +30,15 @@ def load_config(config_ref: str) -> Any:
 
 
 def _run_styles(runs: Sequence[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    model_dims = list(dict.fromkeys(int(run["model_dim"]) for run in runs))
+    divisors = list(dict.fromkeys(int(run["divisor"]) for run in runs))
     color_map = plt.get_cmap("tab10")
-    colors = {model_dim: color_map(index % color_map.N) for index, model_dim in enumerate(model_dims)}
+    colors = {
+        divisor: color_map(index % color_map.N)
+        for index, divisor in enumerate(divisors)
+    }
     return {
         str(run["id"]): {
-            "color": colors[int(run["model_dim"])],
+            "color": colors[int(run["divisor"])],
             "linestyle": "-" if int(run["chunks"]) == 1 else "--",
         }
         for run in runs

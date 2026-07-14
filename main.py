@@ -107,6 +107,8 @@ def _fit_fedavg(
     y_test: torch.Tensor,
     *,
     experiment_seed: int,
+    experiment_number: int,
+    num_experiments: int,
 ):
     trainer = FedAvg(
         num_classes=int(config.dataset.num_classes),
@@ -136,6 +138,8 @@ def _fit_fedavg(
         eval_global_epochs=int(config.training.eval_global_epochs),
         show_progress=True,
         method_name=spec.method,
+        experiment_number=experiment_number,
+        num_experiments=num_experiments,
     )
 
 
@@ -189,10 +193,6 @@ def run(config: Any) -> dict[str, Any]:
         )
 
         for spec in run_specs:
-            print(
-                f"Evaluating {spec.method}: model_dim={spec.model_dim}, "
-                f"chunks={spec.chunks}, experiment={experiment + 1}/{num_experiments}"
-            )
             utils.seed_everything(experiment_seed)
             X_train_run = X_train_hd[:, :spec.model_dim].contiguous()
             X_test_run = X_test_hd[:, :spec.model_dim].contiguous()
@@ -205,6 +205,8 @@ def run(config: Any) -> dict[str, Any]:
                 X_test_run,
                 y_test,
                 experiment_seed=experiment_seed,
+                experiment_number=experiment + 1,
+                num_experiments=num_experiments,
             )
 
             if eval_rounds is None:

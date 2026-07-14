@@ -100,6 +100,8 @@ class FedAvg:
         eval_global_epochs: int = 1,
         show_progress: bool = False,
         method_name: str = "fedavg",
+        experiment_number: int = 1,
+        num_experiments: int = 1,
     ) -> FedAvgResult:
         if chunks < 1:
             raise ValueError("chunks must be at least 1.")
@@ -156,9 +158,13 @@ class FedAvg:
         accuracies: list[float] = []
         global_epoch_durations: list[float] = []
 
+        description = (
+            f"{method_name} | D={self.model_dim} | C={chunks} | "
+            f"exp={experiment_number}/{num_experiments}"
+        )
         global_epoch_bar = tqdm(
             total=global_epochs,
-            desc=f"Method: {method_name}",
+            desc=description,
             disable=not show_progress,
             leave=False,
         )
@@ -221,9 +227,7 @@ class FedAvg:
                 if show_progress:
                     global_epoch_bar.set_postfix_str(f"acc={accuracy:.4f}")
 
-            description = f"Method: {method_name}"
             global_epoch_bar.update(1)
-            global_epoch_bar.set_description(description)
 
         global_epoch_bar.close()
 

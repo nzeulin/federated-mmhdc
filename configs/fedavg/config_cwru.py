@@ -14,7 +14,7 @@ def get_config():
     config.dataset.manifest_path = "configs/datasets/cwru_manifest.json"
     config.dataset.cache_dir = "cache/cwru/cache"
     config.dataset.sensor_channel = "DE"
-    config.dataset.loads = [1, 2, 3]
+    config.dataset.loads = [2,]
     config.dataset.fault_diameters = [7, 14, 21]
     config.dataset.outer_race_position = "6"
     config.dataset.window_size = 100
@@ -28,11 +28,11 @@ def get_config():
 
     config.transform = ConfigDict()
     config.transform.seed = 0
-    config.transform.normalize = False
+    config.transform.normalize = True
     config.transform.batch_size = None
 
     config.model = ConfigDict()
-    config.model.learning_rate = 1e-4
+    config.model.learning_rate = 1e-5
     config.model.C = 500.0
     config.model.margin_width = 1
     config.model.no_margin = False
@@ -58,8 +58,9 @@ def get_config():
 
     config.output = ConfigDict()
     config.output.results_dir = "results/fedavg"
-    config.output.results_filename = "fedavg_cwru_results.pt"
-    config.output.plot_filename = "fedavg_cwru_accuracy.pdf"
+    config.output.results_filename = "results.pt"
+    config.output.plot_filename = "accuracy.pdf"
+    config.output.report_filename = "report.md"
 
     config.device = "cuda"
 

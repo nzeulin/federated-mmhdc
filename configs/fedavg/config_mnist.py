@@ -18,7 +18,7 @@ def get_config():
     config.transform.batch_size = None
 
     config.model = ConfigDict()
-    config.model.learning_rate = 1e-4
+    config.model.learning_rate = 1e-5
     config.model.C = 500.0
     config.model.margin_width = 1
     config.model.no_margin = False
@@ -35,7 +35,7 @@ def get_config():
 
     config.training = ConfigDict()
     config.training.global_epochs = 100
-    config.training.local_epochs = 10
+    config.training.local_epochs = 20
     config.training.num_experiments = 1
     config.training.eval_global_epochs = 1
 
@@ -44,8 +44,9 @@ def get_config():
 
     config.output = ConfigDict()
     config.output.results_dir = "results/fedavg"
-    config.output.results_filename = "fedavg_mnist_results.pt"
-    config.output.plot_filename = "fedavg_mnist_accuracy.pdf"
+    config.output.results_filename = "results.pt"
+    config.output.plot_filename = "accuracy.pdf"
+    config.output.report_filename = "report.md"
 
     config.device = "cuda"
 

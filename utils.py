@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import html
 import importlib
 import importlib.util
+import json
 import random
 from pathlib import Path
 from typing import Any, Sequence
@@ -157,6 +159,57 @@ def config_to_dict(config: Any) -> dict[str, Any]:
     if hasattr(config, "to_dict"):
         return config.to_dict()
     return dict(config)
+
+
+def _format_report_value(value: Any) -> str:
+    serialized = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    escaped = html.escape(serialized).replace("|", "&#124;")
+    return f"<code>{escaped}</code>"
+
+
+def save_experiment_report(config: Any, output_path: str | Path) -> None:
+    config_dict = config_to_dict(config)
+    section_titles = {
+        "dataset": "Dataset",
+        "transform": "Transform",
+        "model": "Model",
+        "fl": "Federated Learning",
+        "training": "Training",
+        "reproducibility": "Reproducibility",
+    }
+
+    sections: list[tuple[str, dict[str, Any]]] = []
+    experiment = {
+        key: config_dict[key]
+        for key in ("name", "device")
+        if key in config_dict
+    }
+    if experiment:
+        sections.append(("Experiment", experiment))
+    for key, title in section_titles.items():
+        values = config_dict.get(key)
+        if isinstance(values, dict):
+            sections.append((title, values))
+
+    lines = ["# Experiment Report"]
+    for title, values in sections:
+        lines.extend(
+            [
+                "",
+                f"## {title}",
+                "",
+                "| Parameter | Value |",
+                "| --- | --- |",
+            ]
+        )
+        lines.extend(
+            f"| {key} | {_format_report_value(values[key])} |"
+            for key in sorted(values)
+        )
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def seed_everything(seed: int) -> None:

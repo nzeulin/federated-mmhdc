@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
@@ -148,12 +149,33 @@ _METHOD_RUNNERS: dict[str, Callable[..., Any]] = {
 }
 
 
+def _create_experiment_output_dir(
+    results_dir: str | Path,
+    dataset_name: str,
+    *,
+    started_at: datetime | None = None,
+) -> Path:
+    if started_at is None:
+        started_at = datetime.now().astimezone()
+    timestamp = started_at.strftime("%Y-%m-%d_%H-%M-%S")
+    output_dir = Path(results_dir) / dataset_name.lower() / timestamp
+    output_dir.mkdir(parents=True, exist_ok=False)
+    return output_dir
+
+
 def run(config: Any) -> dict[str, Any]:
     full_model_dim = int(config.dataset.model_dim)
     run_specs = build_run_specs(config.fl.method, config.fl.chunks, full_model_dim)
     num_experiments = int(config.training.num_experiments)
     if num_experiments < 1:
         raise ValueError("config.training.num_experiments must be at least 1.")
+
+    output_dir = _create_experiment_output_dir(
+        config.output.results_dir,
+        str(config.dataset.name),
+    )
+    report_path = output_dir / config.output.report_filename
+    utils.save_experiment_report(config, report_path)
 
     base_seed = int(config.reproducibility.base_seed)
     utils.seed_everything(base_seed)
@@ -230,8 +252,6 @@ def run(config: Any) -> dict[str, Any]:
             run_record["global_epoch_durations"],
         )
 
-    output_dir = Path(config.output.results_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
     results_path = output_dir / config.output.results_filename
     plot_path = output_dir / config.output.plot_filename
     time_plot_path = utils.wall_time_plot_path(plot_path)
@@ -248,6 +268,7 @@ def run(config: Any) -> dict[str, Any]:
     utils.plot_accuracy(eval_rounds, runs, plot_path)
     utils.plot_accuracy_by_time(eval_rounds, runs, time_plot_path)
     print(f"Saved results to {results_path}")
+    print(f"Saved hyperparameter report to {report_path}")
     print(f"Saved accuracy plot by evaluation epoch to {plot_path}")
     print(f"Saved accuracy plot by wall-clock time to {time_plot_path}")
     return results

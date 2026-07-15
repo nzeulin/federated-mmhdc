@@ -44,8 +44,9 @@ def get_config():
 
     config.output = ConfigDict()
     config.output.results_dir = "results/fedavg"
-    config.output.results_filename = "fedavg_uci_har_results.pt"
-    config.output.plot_filename = "fedavg_uci_har_accuracy.pdf"
+    config.output.results_filename = "results.pt"
+    config.output.plot_filename = "accuracy.pdf"
+    config.output.report_filename = "report.md"
 
     config.device = "cuda"
 

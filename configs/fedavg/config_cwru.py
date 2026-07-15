@@ -13,21 +13,21 @@ def get_config():
     config.dataset.data_root = "cache/cwru/raw"
     config.dataset.manifest_path = "configs/datasets/cwru_manifest.json"
     config.dataset.cache_dir = "cache/cwru/cache"
-    config.dataset.sensor_channel = "DE"
+    config.dataset.sensor_channel = "FE"
     config.dataset.loads = [1,]
     config.dataset.fault_diameters = [7, 14, 21]
     config.dataset.outer_race_position = "6"
     config.dataset.window_size = 100
     config.dataset.train_split = 0.7
-    config.dataset.train_stride = 100
-    config.dataset.test_stride = 100
+    config.dataset.train_stride = 20
+    config.dataset.test_stride = 20
     config.dataset.return_metadata = False
     config.dataset.return_class_mapping = False
 
     config.transform = ConfigDict()
     config.transform.seed = 0
     config.transform.normalize = True
-    config.transform.batch_size = None
+    config.transform.batch_size = 1_000
 
     config.model = ConfigDict()
     config.model.learning_rate = 1e-5

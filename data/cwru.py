@@ -45,7 +45,7 @@ _CWRU_CLASS_IDS = {
 _CWRU_SUPPORTED_LOADS = {0, 1, 2, 3}
 _CWRU_SUPPORTED_DIAMETERS = {7, 14, 21}
 _CWRU_TARGET_SAMPLING_RATE = 12_000
-_CWRU_CACHE_VERSION = 1
+_CWRU_CACHE_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -76,34 +76,26 @@ def load_cwru_dataset(
     fault_diameters: tuple[int, ...] | list[int] = (7, 14, 21),
     outer_race_position: str = "6",
     window_size: int = 100,
-    train_candidate_stride: int = 1,
-    test_stride: int | None = None,
-    train_windows_per_group: int = 660,
-    test_windows_per_group: int = 25,
+    train_split: float = 0.7,
+    train_stride: int = 100,
+    test_stride: int = 100,
     return_metadata: bool = False,
     return_class_mapping: bool = False,
-    seed: int = 42,
 ) -> tuple[Any, ...]:
-    """Prepare the manifest-selected CWRU RES-HD reconstruction.
+    """Prepare timestamp-split windows from manifest-selected CWRU recordings.
 
-    The source paper does not report its exact stride or split procedure. This
-    adapter reserves a deterministic tail test region and samples training
-    windows only from the preceding signal region.
+    Each recording is split after resampling. Complete windows are enumerated
+    independently in the leading training region and trailing test region.
     """
-    if test_stride is None:
-        test_stride = window_size
-
     resolved_config = _resolve_cwru_config(
         sensor_channel=sensor_channel,
         loads=loads,
         fault_diameters=fault_diameters,
         outer_race_position=outer_race_position,
         window_size=window_size,
-        train_candidate_stride=train_candidate_stride,
+        train_split=train_split,
+        train_stride=train_stride,
         test_stride=test_stride,
-        train_windows_per_group=train_windows_per_group,
-        test_windows_per_group=test_windows_per_group,
-        seed=seed,
     )
 
     manifest_path = Path(manifest_path)
@@ -165,12 +157,8 @@ def load_cwru_dataset(
         )
         train_windows.append(group_train)
         test_windows.append(group_test)
-        train_labels.append(
-            np.full(resolved_config["train_windows_per_group"], label_id, dtype=np.int64)
-        )
-        test_labels.append(
-            np.full(resolved_config["test_windows_per_group"], label_id, dtype=np.int64)
-        )
+        train_labels.append(np.full(group_train.shape[0], label_id, dtype=np.int64))
+        test_labels.append(np.full(group_test.shape[0], label_id, dtype=np.int64))
         train_metadata.extend(group_train_meta)
         test_metadata.extend(group_test_meta)
 
@@ -223,11 +211,9 @@ def _resolve_cwru_config(
     fault_diameters: tuple[int, ...] | list[int],
     outer_race_position: str,
     window_size: int,
-    train_candidate_stride: int,
+    train_split: float,
+    train_stride: int,
     test_stride: int,
-    train_windows_per_group: int,
-    test_windows_per_group: int,
-    seed: int,
 ) -> dict[str, Any]:
     channel = str(sensor_channel).upper()
     if channel not in {"DE", "FE"}:
@@ -247,6 +233,10 @@ def _resolve_cwru_config(
     if unsupported_diameters:
         raise ValueError(f"Unsupported CWRU fault diameters: {unsupported_diameters}.")
 
+    split = float(train_split)
+    if not np.isfinite(split) or not 0.0 < split < 1.0:
+        raise ValueError("train_split must be a finite value strictly between 0 and 1.")
+
     position = _normalize_outer_race_position(outer_race_position)
     return {
         "sensor_channel": channel,
@@ -254,17 +244,9 @@ def _resolve_cwru_config(
         "fault_diameters": sorted(selected_diameters),
         "outer_race_position": position,
         "window_size": _positive_int("window_size", window_size),
-        "train_candidate_stride": _positive_int(
-            "train_candidate_stride", train_candidate_stride
-        ),
+        "train_split": split,
+        "train_stride": _positive_int("train_stride", train_stride),
         "test_stride": _positive_int("test_stride", test_stride),
-        "train_windows_per_group": _positive_int(
-            "train_windows_per_group", train_windows_per_group
-        ),
-        "test_windows_per_group": _positive_int(
-            "test_windows_per_group", test_windows_per_group
-        ),
-        "seed": int(seed),
     }
 
 
@@ -573,19 +555,6 @@ def _resample_cwru_signal(
     return processed, True
 
 
-def _cwru_recording_seed(
-    seed: int,
-    recording_id: str,
-    sensor_channel: str,
-    window_size: int,
-) -> int:
-    material = json.dumps(
-        [int(seed), str(recording_id), str(sensor_channel), int(window_size)],
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return int.from_bytes(hashlib.sha256(material).digest()[:8], byteorder="little")
-
-
 def _window_cwru_recording(
     signal: np.ndarray,
     recording: CWRURecording,
@@ -599,39 +568,28 @@ def _window_cwru_recording(
     include_metadata: bool,
 ) -> tuple[np.ndarray, np.ndarray, list[dict[str, Any]], list[dict[str, Any]]]:
     window_size = config["window_size"]
-    test_quota = config["test_windows_per_group"]
-    test_stride = config["test_stride"]
-    test_region_length = window_size + (test_quota - 1) * test_stride
-    test_region_start = int(signal.size) - test_region_length
-    if test_region_start < window_size:
+    split_index = int(np.floor(signal.size * config["train_split"]))
+    train_region_length = split_index
+    test_region_length = int(signal.size) - split_index
+    if train_region_length < window_size or test_region_length < window_size:
         raise ValueError(
-            f"CWRU recording '{recording.recording_id}' is too short for the requested "
-            f"train/test windows after resampling: {signal.size} samples."
+            f"CWRU recording '{recording.recording_id}' is too short for at least one "
+            f"complete {window_size}-sample window in both timestamp regions: "
+            f"train={train_region_length}, test={test_region_length}."
         )
 
     train_starts = np.arange(
         0,
-        test_region_start - window_size + 1,
-        config["train_candidate_stride"],
+        split_index - window_size + 1,
+        config["train_stride"],
         dtype=np.int64,
     )
-    train_quota = config["train_windows_per_group"]
-    if train_starts.size < train_quota:
-        raise ValueError(
-            f"CWRU recording '{recording.recording_id}' provides {train_starts.size} "
-            f"training candidates, fewer than the requested {train_quota}."
-        )
-
-    generator = np.random.default_rng(
-        _cwru_recording_seed(
-            config["seed"],
-            recording.recording_id,
-            config["sensor_channel"],
-            window_size,
-        )
+    test_starts = split_index + np.arange(
+        0,
+        test_region_length - window_size + 1,
+        config["test_stride"],
+        dtype=np.int64,
     )
-    train_starts = np.sort(generator.choice(train_starts, size=train_quota, replace=False))
-    test_starts = test_region_start + np.arange(test_quota, dtype=np.int64) * test_stride
 
     train_windows = np.stack(
         [signal[start : start + window_size] for start in train_starts]
@@ -653,6 +611,7 @@ def _window_cwru_recording(
         "processed_sampling_rate": _CWRU_TARGET_SAMPLING_RATE,
         "original_signal_length": original_signal_length,
         "processed_signal_length": int(signal.size),
+        "split_index": split_index,
         "downsampled": downsampled,
         "label_id": label_id,
         "label_name": CWRU_CLASS_MAPPING[label_id],

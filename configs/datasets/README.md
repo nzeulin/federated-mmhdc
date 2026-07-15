@@ -13,9 +13,8 @@ processed caches are reused. The adapter supports drive-end (`DE`) and fan-end
 (`FE`) signals independently. It downsamples 48 kHz normal drive-end signals to
 12 kHz and leaves 12 kHz signals unchanged.
 
-The window protocol is a reconstruction of RES-HD because the publication does
-not report its exact stride and train/test split procedure. For every
-class/load recording, the adapter reserves a tail region for deterministic test
-windows and samples training windows without replacement only from the region
-before it. The default configuration produces 19,800 training windows and 750
-test windows of 100 samples each.
+Each selected recording is split in timestamp order after resampling. By
+default, the first 70% of timestamps form the training region and the remaining
+30% form the test region. Complete 100-sample windows are enumerated separately
+within each region using configurable train and test strides, so no window
+crosses the split boundary. Incomplete trailing windows are discarded.

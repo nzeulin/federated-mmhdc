@@ -25,13 +25,11 @@ def load_dataset(config: Any) -> tuple[Any, ...]:
             fault_diameters=config.dataset.fault_diameters,
             outer_race_position=config.dataset.outer_race_position,
             window_size=int(config.dataset.window_size),
-            train_candidate_stride=int(config.dataset.train_candidate_stride),
+            train_split=float(config.dataset.train_split),
+            train_stride=int(config.dataset.train_stride),
             test_stride=int(config.dataset.test_stride),
-            train_windows_per_group=int(config.dataset.train_windows_per_group),
-            test_windows_per_group=int(config.dataset.test_windows_per_group),
             return_metadata=bool(config.dataset.return_metadata),
             return_class_mapping=bool(config.dataset.return_class_mapping),
-            seed=int(config.dataset.seed),
         )
     if dataset_name == "mnist":
         return load_mnist_dataset(config)

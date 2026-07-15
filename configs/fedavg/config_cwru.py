@@ -14,17 +14,15 @@ def get_config():
     config.dataset.manifest_path = "configs/datasets/cwru_manifest.json"
     config.dataset.cache_dir = "cache/cwru/cache"
     config.dataset.sensor_channel = "DE"
-    config.dataset.loads = [2,]
+    config.dataset.loads = [1,]
     config.dataset.fault_diameters = [7, 14, 21]
     config.dataset.outer_race_position = "6"
     config.dataset.window_size = 100
-    config.dataset.train_candidate_stride = 1
+    config.dataset.train_split = 0.7
+    config.dataset.train_stride = 100
     config.dataset.test_stride = 100
-    config.dataset.train_windows_per_group = 660
-    config.dataset.test_windows_per_group = 25
     config.dataset.return_metadata = False
     config.dataset.return_class_mapping = False
-    config.dataset.seed = 42
 
     config.transform = ConfigDict()
     config.transform.seed = 0

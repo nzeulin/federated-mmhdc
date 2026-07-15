@@ -25,15 +25,26 @@ class FedAvg:
         num_classes: int,
         model_dim: int,
         lr: float,
-        C: float,
-        margin_width: float,
+        model_method: str = "mmhdc",
+        C: float | None = None,
+        margin_width: float | None = None,
         no_margin: bool = False,
         backend: str = "python",
         device: str | torch.device = "cpu",
         dtype: torch.dtype = torch.float32,
     ):
+        normalized_method = str(model_method).lower()
+        if normalized_method not in {"mmhdc", "onlinehd"}:
+            raise ValueError(
+                f"Unsupported model method '{model_method}'. "
+                "Expected 'mmhdc' or 'onlinehd'."
+            )
+        if normalized_method == "mmhdc" and (C is None or margin_width is None):
+            raise ValueError("MMHDC requires C and margin_width.")
+
         self.num_classes = num_classes
         self.model_dim = model_dim
+        self.model_method = normalized_method
         self.lr = lr
         self.C = C
         self.margin_width = margin_width
@@ -159,7 +170,8 @@ class FedAvg:
         global_epoch_durations: list[float] = []
 
         description = (
-            f"{method_name} | D={self.model_dim} | C={chunks} | "
+            f"{method_name}/{self.model_method} | "
+            f"D={self.model_dim} | C={chunks} | "
             f"exp={experiment_number}/{num_experiments}"
         )
         global_epoch_bar = tqdm(
@@ -246,16 +258,38 @@ class FedAvg:
         prototypes: torch.Tensor,
         positions: torch.Tensor | Iterable[int],
     ) -> float:
-        pos = torch.as_tensor(list(positions) if not torch.is_tensor(positions) else positions, dtype=torch.long)
-        X_eval = X.index_select(1, pos.to(X.device)).to(device=self.device, dtype=self.dtype)
-        P_eval = prototypes.index_select(1, pos.to(prototypes.device)).to(device=self.device, dtype=self.dtype)
+        position_values = positions if torch.is_tensor(positions) else list(positions)
+        pos = torch.as_tensor(position_values, dtype=torch.long)
+        X_eval = X.index_select(1, pos.to(X.device)).to(
+            device=self.device,
+            dtype=self.dtype,
+        )
+        P_eval = prototypes.index_select(1, pos.to(prototypes.device)).to(
+            device=self.device,
+            dtype=self.dtype,
+        )
         y_eval = y.to(device=self.device, dtype=torch.long)
-        pred = torch.argmax(X_eval @ P_eval.T, dim=1)
+        model = self._make_model(out_channels=pos.numel())
+        model.prototypes.copy_(P_eval)
+        pred = model(X_eval)
         return (pred == y_eval).to(dtype=torch.float32).mean().item()
 
     def _make_model(self, out_channels: int):
+        if self.model_method == "onlinehd":
+            from onlinehd import OnlineHD
+
+            return OnlineHD(
+                num_classes=self.num_classes,
+                out_channels=out_channels,
+                lr=self.lr,
+                device=self.device,
+                dtype=self.dtype,
+            )
+
         from mmhdc import MultiMMHDC
 
+        assert self.C is not None
+        assert self.margin_width is not None
         return MultiMMHDC(
             num_classes=self.num_classes,
             out_channels=out_channels,

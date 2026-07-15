@@ -30,7 +30,8 @@ def get_config():
     config.transform.batch_size = 1_000
 
     config.model = ConfigDict()
-    config.model.learning_rate = 1e-5
+    config.model.method = "onlinehd"
+    config.model.learning_rate = 1e-3
     config.model.C = 500.0
     config.model.margin_width = 1
     config.model.no_margin = False

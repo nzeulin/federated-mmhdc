@@ -111,17 +111,24 @@ def _fit_fedavg(
     experiment_number: int,
     num_experiments: int,
 ):
-    trainer = FedAvg(
-        num_classes=int(config.dataset.num_classes),
-        model_dim=spec.model_dim,
-        lr=float(config.model.learning_rate),
-        C=float(config.model.C),
-        margin_width=float(config.model.margin_width),
-        no_margin=bool(config.model.no_margin),
-        backend=str(config.model.backend),
-        device=config.device,
-        dtype=torch.float32,
-    )
+    model_method = str(config.model.method).lower()
+    trainer_kwargs: dict[str, Any] = {
+        "num_classes": int(config.dataset.num_classes),
+        "model_dim": spec.model_dim,
+        "model_method": model_method,
+        "lr": float(config.model.learning_rate),
+        "device": config.device,
+        "dtype": torch.float32,
+    }
+    if model_method == "mmhdc":
+        trainer_kwargs.update(
+            C=float(config.model.C),
+            margin_width=float(config.model.margin_width),
+            no_margin=bool(config.model.no_margin),
+            backend=str(config.model.backend),
+        )
+
+    trainer = FedAvg(**trainer_kwargs)
     return trainer.fit(
         X_train,
         y_train,

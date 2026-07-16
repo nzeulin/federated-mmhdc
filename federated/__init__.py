@@ -59,17 +59,23 @@ def split_noniid(
     generator = torch.Generator(device="cpu")
     generator.manual_seed(seed)
 
-    # Random cyclic offsets guarantee distinct labels for each client.
     num_classes = classes.numel()
-    client_order = torch.randperm(num_clients, generator=generator)
-    class_order = classes[torch.randperm(num_classes, generator=generator)]
-    offsets = torch.randperm(num_classes, generator=generator)[:classes_per_client]
-    positions = torch.arange(num_clients)
-    assignments = torch.stack(
-        [class_order[(positions + offset) % num_classes] for offset in offsets]
-    )
-    client_labels = torch.empty(classes_per_client, num_clients, dtype=torch.long)
-    client_labels[:, client_order] = assignments
+    if classes_per_client == 1 and num_clients == num_classes:
+        client_labels = classes[torch.randperm(num_classes, generator=generator)].unsqueeze(0)
+    else:
+        while True:
+            client_labels = torch.stack(
+                [
+                    classes[
+                        torch.randperm(num_classes, generator=generator)[
+                            :classes_per_client
+                        ]
+                    ]
+                    for _ in range(num_clients)
+                ]
+            ).T.contiguous()
+            if torch.unique(client_labels).numel() == num_classes:
+                break
 
     max_label = int(classes.max().item())
     class_counts = torch.bincount(client_labels.flatten(), minlength=max_label + 1)

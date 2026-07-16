@@ -292,7 +292,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Federated MM-HDC")
     parser.add_argument(
         "--config",
-        default="configs.fedavg.config_mnist",
+        default="configs/fedavg/iid/config_mnist.py",
         help="Python config module or path to a .py config file.",
     )
     args = parser.parse_args()

@@ -10,7 +10,8 @@ def transform_features(
     *,
     model_dim: int,
     transform_seed: int,
-    normalize: bool,
+    normalize_input: bool,
+    normalize_hypervectors: bool,
     batch_size: int | None,
     device: str,
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -21,9 +22,24 @@ def transform_features(
         out_channels=model_dim,
         seed=transform_seed,
         batch_size=batch_size,
-        normalize=normalize,
+        normalize=normalize_input,
         device=device,
         dtype=torch.float32,
     )
-    return transform(X_train_flat), transform(X_test_flat)
+    X_train_hd = transform(X_train_flat)
+    X_test_hd = transform(X_test_flat)
 
+    if normalize_hypervectors:
+        eps = torch.finfo(X_train_hd.dtype).eps
+        X_train_hd = X_train_hd / torch.linalg.vector_norm(
+            X_train_hd,
+            dim=1,
+            keepdim=True,
+        ).clamp_min(eps)
+        X_test_hd = X_test_hd / torch.linalg.vector_norm(
+            X_test_hd,
+            dim=1,
+            keepdim=True,
+        ).clamp_min(eps)
+
+    return X_train_hd, X_test_hd

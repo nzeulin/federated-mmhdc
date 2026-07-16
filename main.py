@@ -127,6 +127,12 @@ def _fit_fedavg(
             no_margin=bool(config.model.no_margin),
             backend=str(config.model.backend),
         )
+    elif model_method == "onlinehd":
+        trainer_kwargs["init_aggregation"] = getattr(
+            config.model,
+            "init_aggregation",
+            "sum",
+        )
 
     trainer = FedAvg(**trainer_kwargs)
     return trainer.fit(
@@ -216,7 +222,8 @@ def run(config: Any) -> dict[str, Any]:
             X_test,
             model_dim=full_model_dim,
             transform_seed=transform_seed,
-            normalize=bool(config.transform.normalize),
+            normalize_input=bool(config.transform.normalize_input),
+            normalize_hypervectors=bool(config.transform.normalize_hypervectors),
             batch_size=config.transform.batch_size,
             device=config.device,
         )

@@ -5,6 +5,7 @@ def get_config():
     config = ConfigDict()
     config.name = "fedavg_mnist"
 
+    # Dataset parameters
     config.dataset = ConfigDict()
     config.dataset.name = "mnist"
     config.dataset.num_classes = 10
@@ -12,19 +13,29 @@ def get_config():
     config.dataset.download = True
     config.dataset.data_root = "cache"
 
+    # HD transform parameters
     config.transform = ConfigDict()
     config.transform.seed = 0
-    config.transform.normalize = True
+    config.transform.normalize_input = True
+    config.transform.normalize_hypervectors = False
     config.transform.batch_size = 1_000
 
     config.model = ConfigDict()
+
+    # Common model parameters
     config.model.method = "onlinehd"
     config.model.learning_rate = 1e-3
+
+    # OnlineHD parameters
+    config.model.init_aggregation = "norm"
+
+    # MMHDC parameters
     config.model.C = 500.0
     config.model.margin_width = 1
     config.model.no_margin = False
     config.model.backend = "cpp"
 
+    # Federated learning parameters
     config.fl = ConfigDict()
     config.fl.method = ["fedavg"]
     config.fl.num_clients = 20
@@ -36,7 +47,7 @@ def get_config():
 
     config.training = ConfigDict()
     config.training.global_epochs = 100
-    config.training.local_epochs = 5
+    config.training.local_epochs = 10
     config.training.num_experiments = 3
     config.training.eval_global_epochs = 1
 

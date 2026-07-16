@@ -5,6 +5,7 @@ import importlib
 import importlib.util
 import json
 import random
+import subprocess
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -161,6 +162,21 @@ def config_to_dict(config: Any) -> dict[str, Any]:
     return dict(config)
 
 
+def _git_commit() -> str:
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=Path(__file__).resolve().parent,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+    commit = completed.stdout.strip()
+    return commit[:7] if commit else "unknown"
+
+
 def _format_report_value(value: Any) -> str:
     serialized = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
     escaped = html.escape(serialized).replace("|", "&#124;")
@@ -184,6 +200,13 @@ def save_experiment_report(config: Any, output_path: str | Path) -> None:
         for key in ("name", "device")
         if key in config_dict
     }
+    fl_methods = config_dict.get("fl", {}).get("method")
+    model_method = config_dict.get("model", {}).get("method")
+    if fl_methods is not None:
+        experiment["fl_method"] = fl_methods
+    if model_method is not None:
+        experiment["model_method"] = model_method
+    experiment["git_commit"] = _git_commit()
     if experiment:
         sections.append(("Experiment", experiment))
     for key, title in section_titles.items():
@@ -202,10 +225,13 @@ def save_experiment_report(config: Any, output_path: str | Path) -> None:
                 "| --- | --- |",
             ]
         )
-        lines.extend(
-            f"| {key} | {_format_report_value(values[key])} |"
-            for key in sorted(values)
-        )
+        for key in sorted(values):
+            display_key = key
+            if title == "Model" and key == "method":
+                display_key = "model_method"
+            elif title == "Federated Learning" and key == "method":
+                display_key = "fl_method"
+            lines.append(f"| {display_key} | {_format_report_value(values[key])} |")
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)

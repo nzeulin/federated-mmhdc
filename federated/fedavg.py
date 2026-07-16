@@ -25,6 +25,7 @@ class FedAvg:
         num_classes: int,
         model_dim: int,
         lr: float,
+        init_aggregation: str | None = "sum",
         model_method: str = "mmhdc",
         C: float | None = None,
         margin_width: float | None = None,
@@ -46,6 +47,7 @@ class FedAvg:
         self.model_dim = model_dim
         self.model_method = normalized_method
         self.lr = lr
+        self.init_aggregation = init_aggregation
         self.C = C
         self.margin_width = margin_width
         self.no_margin = no_margin
@@ -282,6 +284,7 @@ class FedAvg:
                 num_classes=self.num_classes,
                 out_channels=out_channels,
                 lr=self.lr,
+                init_aggregation=self.init_aggregation,
                 device=self.device,
                 dtype=self.dtype,
             )

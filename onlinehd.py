@@ -14,6 +14,7 @@ class OnlineHD(torch.nn.Module):
         num_classes: int,
         out_channels: int,
         lr: float = 0.035,
+        init_aggregation: str | None = "sum",
         device: str | torch.device = "cpu",
         dtype: torch.dtype = torch.float32,
     ) -> None:
@@ -48,6 +49,18 @@ class OnlineHD(torch.nn.Module):
         self.num_classes = num_classes
         self.out_channels = out_channels
         self.lr = learning_rate
+        if init_aggregation is None:
+            aggregation = "sum"
+        elif isinstance(init_aggregation, str):
+            aggregation = init_aggregation.lower()
+        else:
+            aggregation = ""
+        if aggregation not in {"sum", "mean", "norm"}:
+            raise ValueError(
+                "init_aggregation must be one of 'sum', 'mean', or 'norm'; "
+                "None is an alias for 'sum'."
+            )
+        self.init_aggregation = aggregation
         self.dtype = dtype
         self.prototypes = torch.nn.Parameter(
             torch.zeros(num_classes, out_channels, device=device, dtype=dtype),
@@ -61,10 +74,22 @@ class OnlineHD(torch.nn.Module):
 
     @torch.no_grad()
     def initialize(self, x: torch.Tensor, y: torch.Tensor) -> None:
-        """Initialize prototypes as ``lr`` times each class hypervector sum."""
+        """Initialize prototypes from class-wise hypervector aggregates."""
         hypervectors, labels = self._prepare_training_batch(x, y)
         prototype_sums = torch.zeros_like(self.prototypes)
         prototype_sums.index_add_(0, labels, hypervectors)
+
+        if self.init_aggregation == "mean":
+            counts = torch.bincount(labels, minlength=self.num_classes).to(
+                device=prototype_sums.device,
+                dtype=prototype_sums.dtype,
+            )
+            prototype_sums.div_(counts.clamp_min(1).unsqueeze(1))
+        elif self.init_aggregation == "norm":
+            eps = torch.finfo(prototype_sums.dtype).eps
+            norms = torch.linalg.vector_norm(prototype_sums, dim=1, keepdim=True)
+            prototype_sums.div_(norms.clamp_min(eps))
+
         self.prototypes.copy_(prototype_sums)
 
     @torch.no_grad()

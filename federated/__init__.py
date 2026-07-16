@@ -51,16 +51,25 @@ def split_noniid(
         )
     if classes_per_client < 1:
         raise ValueError("classes_per_client must be at least 1.")
+    if classes_per_client > classes.numel():
+        raise ValueError(
+            "classes_per_client cannot exceed the number of dataset classes."
+        )
 
     generator = torch.Generator(device="cpu")
     generator.manual_seed(seed)
 
-    repeats = (num_clients + classes.numel() - 1) // classes.numel()
-    base_labels = classes.repeat(repeats)[:num_clients]
+    # Random cyclic offsets guarantee distinct labels for each client.
+    num_classes = classes.numel()
+    client_order = torch.randperm(num_clients, generator=generator)
+    class_order = classes[torch.randperm(num_classes, generator=generator)]
+    offsets = torch.randperm(num_classes, generator=generator)[:classes_per_client]
+    positions = torch.arange(num_clients)
+    assignments = torch.stack(
+        [class_order[(positions + offset) % num_classes] for offset in offsets]
+    )
     client_labels = torch.empty(classes_per_client, num_clients, dtype=torch.long)
-    for row in range(classes_per_client):
-        perm = torch.randperm(num_clients, generator=generator)
-        client_labels[row] = base_labels[perm]
+    client_labels[:, client_order] = assignments
 
     max_label = int(classes.max().item())
     class_counts = torch.bincount(client_labels.flatten(), minlength=max_label + 1)

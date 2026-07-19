@@ -48,7 +48,7 @@ def get_config():
     config.training = ConfigDict()
     config.training.global_epochs = 100
     config.training.local_epochs = 5
-    config.training.num_experiments = 1
+    config.training.num_experiments = 3
     config.training.eval_global_epochs = 1
 
     config.reproducibility = ConfigDict()

@@ -64,7 +64,7 @@ def build_run_specs(methods: Sequence[str], chunks: Sequence[int], model_dim: in
                 specs.append(
                     RunSpec(
                         id=f"{method}_full_d{model_dim}_c1",
-                        label=f"FedAvg D={model_dim}, chunks=1",
+                        label=f"D={model_dim}, C=1",
                         method=method,
                         variant="full_dim",
                         divisor=divisor,
@@ -77,7 +77,7 @@ def build_run_specs(methods: Sequence[str], chunks: Sequence[int], model_dim: in
             specs.append(
                 RunSpec(
                     id=f"{method}_reduced_d{reduced_dim}_for_c{divisor}",
-                    label=f"FedAvg D={reduced_dim}, chunks=1 (D/{divisor} baseline)",
+                    label=f"D={reduced_dim}, C=1",
                     method=method,
                     variant="reduced_dim",
                     divisor=divisor,
@@ -88,7 +88,7 @@ def build_run_specs(methods: Sequence[str], chunks: Sequence[int], model_dim: in
             specs.append(
                 RunSpec(
                     id=f"{method}_full_d{model_dim}_c{divisor}",
-                    label=f"FedAvg D={model_dim}, chunks={divisor}",
+                    label=f"D={model_dim}, C={divisor}",
                     method=method,
                     variant="full_dim",
                     divisor=divisor,
@@ -207,6 +207,11 @@ def run(config: Any) -> dict[str, Any]:
             **asdict(spec),
             "accuracies": [],
             "global_epoch_durations": [],
+            "client_epoch_durations": [],
+            "global_peak_cpu_memory_bytes": [],
+            "global_peak_gpu_memory_bytes": [],
+            "client_peak_cpu_memory_bytes": [],
+            "client_peak_gpu_memory_bytes": [],
             "final_prototypes": [],
         }
         for spec in run_specs
@@ -230,8 +235,8 @@ def run(config: Any) -> dict[str, Any]:
 
         for spec in run_specs:
             utils.seed_everything(experiment_seed)
-            X_train_run = X_train_hd[:, :spec.model_dim].contiguous()
-            X_test_run = X_test_hd[:, :spec.model_dim].contiguous()
+            X_train_run = X_train_hd[:, :spec.model_dim]
+            X_test_run = X_test_hd[:, :spec.model_dim]
             runner = _METHOD_RUNNERS[spec.method]
             result = runner(
                 config,
@@ -253,6 +258,19 @@ def run(config: Any) -> dict[str, Any]:
             run_record = runs_by_id[spec.id]
             run_record["accuracies"].append(result.accuracies)
             run_record["global_epoch_durations"].append(result.global_epoch_durations)
+            run_record["client_epoch_durations"].append(result.client_epoch_durations)
+            run_record["global_peak_cpu_memory_bytes"].append(
+                result.global_peak_cpu_memory_bytes
+            )
+            run_record["global_peak_gpu_memory_bytes"].append(
+                result.global_peak_gpu_memory_bytes
+            )
+            run_record["client_peak_cpu_memory_bytes"].append(
+                result.client_peak_cpu_memory_bytes
+            )
+            run_record["client_peak_gpu_memory_bytes"].append(
+                result.client_peak_gpu_memory_bytes
+            )
             run_record["final_prototypes"].append(result.global_prototypes)
 
     assert eval_rounds is not None
@@ -261,6 +279,14 @@ def run(config: Any) -> dict[str, Any]:
         run_record["global_epoch_durations"] = torch.stack(
             run_record["global_epoch_durations"]
         )
+        for key in (
+            "client_epoch_durations",
+            "global_peak_cpu_memory_bytes",
+            "global_peak_gpu_memory_bytes",
+            "client_peak_cpu_memory_bytes",
+            "client_peak_gpu_memory_bytes",
+        ):
+            run_record[key] = torch.stack(run_record[key])
         run_record["eval_wall_times"] = utils.compute_eval_wall_times(
             eval_rounds,
             run_record["global_epoch_durations"],
@@ -279,6 +305,7 @@ def run(config: Any) -> dict[str, Any]:
     if dataset_info is not None:
         results["dataset_info"] = dataset_info
     torch.save(results, results_path)
+    utils.save_experiment_report(config, report_path, runs=runs)
     utils.plot_accuracy(eval_rounds, runs, plot_path)
     utils.plot_accuracy_by_time(eval_rounds, runs, time_plot_path)
     print(f"Saved results to {results_path}")

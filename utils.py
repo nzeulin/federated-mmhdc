@@ -4,10 +4,11 @@ import html
 import importlib
 import importlib.util
 import json
+import math
 import random
 import subprocess
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 import matplotlib
 import torch
@@ -30,6 +31,11 @@ def load_config(config_ref: str) -> Any:
     if not hasattr(module, "get_config"):
         raise AttributeError(f"Config '{config_ref}' must define get_config().")
     return module.get_config()
+
+
+def run_display_name(run: Mapping[str, Any]) -> str:
+    """Return the compact label shown for a run in plots and reports."""
+    return f"D={int(run['model_dim'])}, C={int(run['chunks'])}"
 
 
 def _run_styles(runs: Sequence[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -72,7 +78,7 @@ def plot_accuracy(
             color=style["color"],
             linestyle=style["linestyle"],
             linewidth=2.0,
-            label=str(run["label"]),
+            label=run_display_name(run),
         )
         plt.fill_between(
             rounds.numpy(),
@@ -83,6 +89,7 @@ def plot_accuracy(
         )
     plt.xlabel("Evaluation epoch")
     plt.ylabel("Test accuracy")
+    plt.xlim(0, rounds.max().item())
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.tight_layout()
@@ -117,11 +124,13 @@ def plot_accuracy_by_time(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     styles = _run_styles(runs)
+    max_time = 0.0
 
     plt.figure(figsize=(8, 5))
     for run in runs:
         durations = run["global_epoch_durations"].detach().cpu().to(dtype=torch.float64)
         mean_times = compute_mean_eval_wall_times(eval_rounds, durations)
+        max_time = max(max_time, mean_times.max().item())
         curves = run["accuracies"].detach().cpu()
         mean = curves.mean(dim=0)
         lower = torch.quantile(curves, 0.05, dim=0)
@@ -133,7 +142,7 @@ def plot_accuracy_by_time(
             color=style["color"],
             linestyle=style["linestyle"],
             linewidth=2.0,
-            label=str(run["label"]),
+            label=run_display_name(run),
         )
         plt.fill_between(
             mean_times.numpy(),
@@ -144,6 +153,7 @@ def plot_accuracy_by_time(
         )
     plt.xlabel("Training wall-clock time (s)")
     plt.ylabel("Test accuracy")
+    plt.xlim(0, max_time)
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.tight_layout()
@@ -183,7 +193,44 @@ def _format_report_value(value: Any) -> str:
     return f"<code>{escaped}</code>"
 
 
-def save_experiment_report(config: Any, output_path: str | Path) -> None:
+def _format_metric(value: Any, *, scale: float = 1.0) -> str:
+    if value is None:
+        return "N/A"
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        return "N/A"
+    return f"<code>{numeric / scale:.4f}</code>"
+
+
+_MEMORY_MB = 1_000_000.0
+
+
+def _mean_metric(
+    run: dict[str, Any],
+    key: str,
+) -> float | None:
+    values = run.get(key)
+    if values is None:
+        return None
+    tensor = torch.as_tensor(values, dtype=torch.float64)
+    return float(tensor.mean().item())
+
+
+def _mean_client_metric(run: dict[str, Any], key: str) -> float | None:
+    values = run.get(key)
+    if values is None:
+        return None
+    tensor = torch.as_tensor(values, dtype=torch.float64)
+    client_means = tensor.mean(dim=tuple(range(tensor.ndim - 1)))
+    return float(client_means.mean().item())
+
+
+def save_experiment_report(
+    config: Any,
+    output_path: str | Path,
+    *,
+    runs: Sequence[dict[str, Any]] | None = None,
+) -> None:
     config_dict = config_to_dict(config)
     section_titles = {
         "dataset": "Dataset",
@@ -232,6 +279,47 @@ def save_experiment_report(config: Any, output_path: str | Path) -> None:
             elif title == "Federated Learning" and key == "method":
                 display_key = "fl_method"
             lines.append(f"| {display_key} | {_format_report_value(values[key])} |")
+
+    if runs:
+        lines.extend(
+            [
+                "",
+                "## Global Epoch Metrics",
+                "",
+                "| Run | Average epoch time (s) | Average peak CPU RSS (MB) | "
+                "Average peak GPU allocated (MB) |",
+                "| --- | ---: | ---: | ---: |",
+            ]
+        )
+        for run in runs:
+            global_cpu = _mean_metric(run, "global_peak_cpu_memory_bytes")
+            global_gpu = _mean_metric(run, "global_peak_gpu_memory_bytes")
+            lines.append(
+                f"| {run_display_name(run)} | "
+                f"{_format_metric(_mean_metric(run, 'global_epoch_durations'))} | "
+                f"{_format_metric(global_cpu, scale=_MEMORY_MB)} | "
+                f"{_format_metric(global_gpu, scale=_MEMORY_MB)} |"
+            )
+
+        lines.extend(
+            [
+                "",
+                "## Average Client Metrics",
+                "",
+                "| Run | Average client phase time (s) | "
+                "Average peak CPU RSS (MB) | Average peak GPU allocated (MB) |",
+                "| --- | ---: | ---: | ---: |",
+            ]
+        )
+        for run in runs:
+            if run.get("client_epoch_durations") is None:
+                continue
+            lines.append(
+                f"| {run_display_name(run)} | "
+                f"{_format_metric(_mean_client_metric(run, 'client_epoch_durations'))} | "
+                f"{_format_metric(_mean_client_metric(run, 'client_peak_cpu_memory_bytes'), scale=_MEMORY_MB)} | "
+                f"{_format_metric(_mean_client_metric(run, 'client_peak_gpu_memory_bytes'), scale=_MEMORY_MB)} |"
+            )
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)

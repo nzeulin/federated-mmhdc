@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import math
+import os
+import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, Sequence
 
 import torch
@@ -10,12 +14,62 @@ from tqdm import tqdm
 from . import split_iid, split_noniid
 
 
+def _process_rss_bytes() -> int:
+    """Return the current process resident set size in bytes."""
+    try:
+        fields = Path("/proc/self/statm").read_text().split()
+        return int(fields[1]) * int(os.sysconf("SC_PAGE_SIZE"))
+    except (OSError, IndexError, ValueError):
+        try:
+            import resource
+
+            rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            return int(rss if sys.platform == "darwin" else rss * 1024)
+        except (ImportError, OSError):
+            return 0
+
+
+def _cuda_memory_available(device: torch.device) -> bool:
+    return device.type == "cuda" and torch.cuda.is_available()
+
+
+@dataclass
+class _MemoryTracker:
+    device: torch.device
+    cpu_peak_bytes: int = 0
+    gpu_peak_bytes: float = float("nan")
+
+    def start(self) -> None:
+        self.cpu_peak_bytes = _process_rss_bytes()
+        if _cuda_memory_available(self.device):
+            torch.cuda.reset_peak_memory_stats(self.device)
+            self.gpu_peak_bytes = 0.0
+        else:
+            self.gpu_peak_bytes = float("nan")
+
+    def sample(self) -> None:
+        self.cpu_peak_bytes = max(self.cpu_peak_bytes, _process_rss_bytes())
+        if _cuda_memory_available(self.device):
+            self.gpu_peak_bytes = max(
+                self.gpu_peak_bytes,
+                float(torch.cuda.max_memory_allocated(self.device)),
+            )
+
+    def finish(self) -> None:
+        self.sample()
+
+
 @dataclass
 class FedAvgResult:
     global_prototypes: torch.Tensor
     eval_rounds: torch.Tensor
     accuracies: torch.Tensor
     global_epoch_durations: torch.Tensor
+    client_epoch_durations: torch.Tensor
+    global_peak_cpu_memory_bytes: torch.Tensor
+    global_peak_gpu_memory_bytes: torch.Tensor
+    client_peak_cpu_memory_bytes: torch.Tensor
+    client_peak_gpu_memory_bytes: torch.Tensor
 
 
 class FedAvg:
@@ -170,6 +224,11 @@ class FedAvg:
         eval_rounds: list[int] = []
         accuracies: list[float] = []
         global_epoch_durations: list[float] = []
+        client_epoch_durations: list[list[float]] = []
+        global_peak_cpu_memory_bytes: list[int] = []
+        global_peak_gpu_memory_bytes: list[float] = []
+        client_peak_cpu_memory_bytes: list[list[int]] = []
+        client_peak_gpu_memory_bytes: list[list[float]] = []
 
         description = (
             f"{method_name}/{self.model_method} | "
@@ -185,6 +244,12 @@ class FedAvg:
         for global_epoch in range(global_epochs):
             self._synchronize_device()
             epoch_start = time.perf_counter()
+            global_cpu_peak = _process_rss_bytes()
+            global_gpu_peak = (
+                float(torch.cuda.memory_allocated(self.device))
+                if _cuda_memory_available(self.device)
+                else float("nan")
+            )
 
             if chunks == 1:
                 current_positions = full_positions
@@ -197,13 +262,21 @@ class FedAvg:
 
             current_positions = current_positions.to(dtype=torch.long)
             local_prototypes = []
+            epoch_client_durations: list[float] = []
+            epoch_client_cpu_peaks: list[int] = []
+            epoch_client_gpu_peaks: list[float] = []
             for client_id, indices in enumerate(client_indices):
+                self._synchronize_device()
+                client_memory = _MemoryTracker(self.device)
+                client_memory.start()
+                client_start = time.perf_counter()
                 model = self._make_model(out_channels=current_positions.numel())
                 # Materialize contiguous local tensors. This avoids depending on
                 # advanced-indexing view behavior and keeps the optional C++
                 # backend on simple dense tensors.
                 X_client = X_train.index_select(0, indices).index_select(1, current_positions).contiguous()
                 y_client = y_train.index_select(0, indices).contiguous()
+                client_memory.sample()
 
                 # Every update round starts from the latest global slice and
                 # writes back the averaged local changes for the same positions.
@@ -222,6 +295,14 @@ class FedAvg:
                     shuffle=shuffle,
                     generator=local_generator,
                 )
+                self._synchronize_device()
+                client_memory.finish()
+                epoch_client_durations.append(time.perf_counter() - client_start)
+                epoch_client_cpu_peaks.append(client_memory.cpu_peak_bytes)
+                epoch_client_gpu_peaks.append(client_memory.gpu_peak_bytes)
+                global_cpu_peak = max(global_cpu_peak, client_memory.cpu_peak_bytes)
+                if math.isfinite(client_memory.gpu_peak_bytes):
+                    global_gpu_peak = max(global_gpu_peak, client_memory.gpu_peak_bytes)
                 local_prototypes.append(model.prototypes.detach().clone())
 
             global_slice = self.global_update(local_prototypes).to(device=self.device, dtype=self.dtype)
@@ -230,6 +311,17 @@ class FedAvg:
 
             self._synchronize_device()
             global_epoch_durations.append(time.perf_counter() - epoch_start)
+            global_cpu_peak = max(global_cpu_peak, _process_rss_bytes())
+            if _cuda_memory_available(self.device):
+                global_gpu_peak = max(
+                    global_gpu_peak,
+                    float(torch.cuda.max_memory_allocated(self.device)),
+                )
+            client_epoch_durations.append(epoch_client_durations)
+            global_peak_cpu_memory_bytes.append(global_cpu_peak)
+            global_peak_gpu_memory_bytes.append(global_gpu_peak)
+            client_peak_cpu_memory_bytes.append(epoch_client_cpu_peaks)
+            client_peak_gpu_memory_bytes.append(epoch_client_gpu_peaks)
 
             eval_positions = full_positions
 
@@ -250,6 +342,23 @@ class FedAvg:
             eval_rounds=torch.as_tensor(eval_rounds, dtype=torch.long),
             accuracies=torch.as_tensor(accuracies, dtype=torch.float32),
             global_epoch_durations=torch.as_tensor(global_epoch_durations, dtype=torch.float64),
+            client_epoch_durations=torch.as_tensor(client_epoch_durations, dtype=torch.float64),
+            global_peak_cpu_memory_bytes=torch.as_tensor(
+                global_peak_cpu_memory_bytes,
+                dtype=torch.float64,
+            ),
+            global_peak_gpu_memory_bytes=torch.as_tensor(
+                global_peak_gpu_memory_bytes,
+                dtype=torch.float64,
+            ),
+            client_peak_cpu_memory_bytes=torch.as_tensor(
+                client_peak_cpu_memory_bytes,
+                dtype=torch.float64,
+            ),
+            client_peak_gpu_memory_bytes=torch.as_tensor(
+                client_peak_gpu_memory_bytes,
+                dtype=torch.float64,
+            ),
         )
 
     @torch.no_grad()

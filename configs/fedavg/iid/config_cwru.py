@@ -36,7 +36,7 @@ def get_config():
 
     # Common model parameters
     config.model.method = "onlinehd"
-    config.model.learning_rate = 1e-2
+    config.model.learning_rate = 1e-3
 
     # OnlineHD parameters
     config.model.init_aggregation = "norm"
